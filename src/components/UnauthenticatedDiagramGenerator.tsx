@@ -1,0 +1,601 @@
+import React, { useState, useEffect, useRef } from 'react';
+import mermaid from 'mermaid';
+import { Download, FileCode, Image, FileText, Copy } from 'lucide-react';
+
+interface DiagramResponse {
+  message: string;
+  mermaidCode: string;
+  diagramType: 'flowchart' | 'sequence' | 'class' | 'state' | 'er' | 'gantt';
+  suggestions: string[];
+  complexity: 'simple' | 'moderate' | 'complex';
+  exportHints?: {
+    recommendedFormat: 'svg' | 'png' | 'html';
+    reason: string;
+  };
+}
+
+interface DiagramHistoryItem {
+  prompt: string;
+  response: DiagramResponse;
+  timestamp: number;
+}
+
+interface UnauthenticatedDiagramGeneratorProps {
+  apiConfig: {apiKey: string, apiUrl: string} | null;
+  onApiKeyRequest: () => void;
+}
+
+const UnauthenticatedDiagramGenerator: React.FC<UnauthenticatedDiagramGeneratorProps> = ({ apiConfig, onApiKeyRequest }) => {
+  const [prompt, setPrompt] = useState('');
+  const [diagramResponse, setDiagramResponse] = useState<DiagramResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [diagramHistory, setDiagramHistory] = useState<DiagramHistoryItem[]>([]);
+  const [currentHistoryIndex, setCurrentHistoryIndex] = useState(-1);
+  const diagramRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'default',
+      securityLevel: 'loose',
+    });
+  }, []);
+
+  useEffect(() => {
+    if (diagramResponse?.mermaidCode && diagramRef.current) {
+      renderDiagram();
+    }
+  }, [diagramResponse]);
+
+  const renderDiagram = async () => {
+    if (!diagramRef.current || !diagramResponse?.mermaidCode) return;
+
+    try {
+      const element = diagramRef.current;
+      element.innerHTML = `<div class="mermaid">${diagramResponse.mermaidCode}</div>`;
+      await mermaid.run();
+    } catch (err) {
+      console.error('Error rendering diagram:', err);
+      setError('Failed to render diagram');
+    }
+  };
+
+
+  const addToHistory = (prompt: string, response: DiagramResponse) => {
+    const historyItem: DiagramHistoryItem = {
+      prompt,
+      response,
+      timestamp: Date.now(),
+    };
+    
+    const newHistory = diagramHistory.slice(0, currentHistoryIndex + 1);
+    newHistory.push(historyItem);
+    const trimmedHistory = newHistory.slice(-10);
+    
+    setDiagramHistory(trimmedHistory);
+    setCurrentHistoryIndex(trimmedHistory.length - 1);
+  };
+
+  const goToPreviousDiagram = () => {
+    if (currentHistoryIndex > 0) {
+      const newIndex = currentHistoryIndex - 1;
+      const historyItem = diagramHistory[newIndex];
+      setCurrentHistoryIndex(newIndex);
+      setPrompt(historyItem.prompt);
+      setDiagramResponse(historyItem.response);
+      setError(null);
+    }
+  };
+
+  const goToNextDiagram = () => {
+    if (currentHistoryIndex < diagramHistory.length - 1) {
+      const newIndex = currentHistoryIndex + 1;
+      const historyItem = diagramHistory[newIndex];
+      setCurrentHistoryIndex(newIndex);
+      setPrompt(historyItem.prompt);
+      setDiagramResponse(historyItem.response);
+      setError(null);
+    }
+  };
+
+  const clearHistory = () => {
+    setDiagramHistory([]);
+    setCurrentHistoryIndex(-1);
+  };
+
+  const generateWithLocalProxy = async (prompt: string) => {
+    if (!apiConfig) {
+      throw new Error('OpenAI API configuration not found');
+    }
+
+    const response = await fetch('http://localhost:3001/api/openai/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        apiKey: apiConfig.apiKey,
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content: `You are a specialized Mermaid diagram generator. Generate a JSON response with this exact structure:
+{
+  "message": "Brief description of what was created",
+  "mermaidCode": "Valid Mermaid diagram code",
+  "diagramType": "flowchart|sequence|class|state|er|gantt",
+  "suggestions": ["Suggestion 1", "Suggestion 2"],
+  "complexity": "simple|moderate|complex",
+  "exportHints": {
+    "recommendedFormat": "svg|png|html",
+    "reason": "Explanation for format recommendation"
+  }
+}
+
+Create diagrams based on user descriptions. Use appropriate Mermaid syntax and suggest the best diagram type for their needs.`
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        temperature: 0.7,
+        max_tokens: 2000,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(`Local proxy error: ${errorData.error || response.statusText}`);
+    }
+
+    const data = await response.json();
+    const content = data.choices[0]?.message?.content;
+    
+    if (!content) {
+      throw new Error('No response from OpenAI API via local proxy');
+    }
+
+    try {
+      return JSON.parse(content);
+    } catch {
+      return {
+        message: "Generated diagram via local proxy",
+        mermaidCode: `graph TD\n    A[${prompt}] --> B[Generated via Proxy]`,
+        diagramType: "flowchart",
+        suggestions: ["Local proxy connection successful"],
+        complexity: "simple",
+        exportHints: {
+          recommendedFormat: "svg",
+          reason: "SVG recommended for scalability"
+        }
+      };
+    }
+  };
+
+  const generateWithOpenAI = async (prompt: string) => {
+    if (!apiConfig) {
+      throw new Error('OpenAI API configuration not found');
+    }
+
+    // Check if using local proxy server
+    if (apiConfig.apiUrl.includes('localhost:3001')) {
+      return await generateWithLocalProxy(prompt);
+    }
+
+    // For development, we'll use a CORS proxy. In production, you'd want your own backend.
+    const corsProxy = 'https://cors-anywhere.herokuapp.com/';
+    const apiUrl = apiConfig.apiUrl.includes('cors-anywhere') ? apiConfig.apiUrl : `${corsProxy}${apiConfig.apiUrl}`;
+
+    try {
+      const response = await fetch(`${apiUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiConfig.apiKey}`,
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini', // Using a more cost-effective model
+          messages: [
+            {
+              role: 'system',
+              content: `You are a specialized Mermaid diagram generator. Generate a JSON response with this exact structure:
+{
+  "message": "Brief description of what was created",
+  "mermaidCode": "Valid Mermaid diagram code",
+  "diagramType": "flowchart|sequence|class|state|er|gantt",
+  "suggestions": ["Suggestion 1", "Suggestion 2"],
+  "complexity": "simple|moderate|complex",
+  "exportHints": {
+    "recommendedFormat": "svg|png|html",
+    "reason": "Explanation for format recommendation"
+  }
+}
+
+Create diagrams based on user descriptions. Use appropriate Mermaid syntax and suggest the best diagram type for their needs.`
+            },
+            {
+              role: 'user',
+              content: prompt
+            }
+          ],
+          temperature: 0.7,
+          max_tokens: 2000,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`OpenAI API error: ${response.status} ${response.statusText} - ${errorText}`);
+      }
+
+      const data = await response.json();
+      const content = data.choices[0]?.message?.content;
+      
+      if (!content) {
+        throw new Error('No response from OpenAI API');
+      }
+
+      try {
+        return JSON.parse(content);
+      } catch {
+        return {
+          message: "Generated a basic diagram from your description",
+          mermaidCode: `graph TD\n    A[${prompt}] --> B[Generated Diagram]`,
+          diagramType: "flowchart",
+          suggestions: ["Try being more specific about the components", "Add more details about the relationships"],
+          complexity: "simple",
+          exportHints: {
+            recommendedFormat: "svg",
+            reason: "SVG recommended for scalability"
+          }
+        };
+      }
+    } catch (networkError) {
+      // If CORS proxy fails, try direct connection (might work in some environments)
+      console.warn('CORS proxy failed, trying direct connection:', networkError);
+      
+      try {
+        const directResponse = await fetch(`${apiConfig.apiUrl}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiConfig.apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            messages: [
+              {
+                role: 'system',
+                content: `Generate a Mermaid diagram based on the user's description. Return only valid Mermaid syntax.`
+              },
+              {
+                role: 'user',
+                content: prompt
+              }
+            ],
+            temperature: 0.7,
+            max_tokens: 1000,
+          }),
+        });
+
+        if (directResponse.ok) {
+          const directData = await directResponse.json();
+          const mermaidCode = directData.choices[0]?.message?.content || `graph TD\n    A[${prompt}] --> B[Generated]`;
+          
+          return {
+            message: "Generated diagram using direct OpenAI connection",
+            mermaidCode: mermaidCode.replace(/```mermaid\n?|```/g, '').trim(),
+            diagramType: "flowchart",
+            suggestions: ["Direct API connection successful"],
+            complexity: "simple",
+            exportHints: {
+              recommendedFormat: "svg",
+              reason: "SVG recommended for scalability"
+            }
+          };
+        }
+      } catch (directError) {
+        console.warn('Direct connection also failed:', directError);
+      }
+      
+      throw new Error('Unable to connect to OpenAI API. This might be due to CORS restrictions. Please see the setup instructions.');
+    }
+  };
+
+  const generateDiagram = async () => {
+    if (!prompt.trim()) return;
+    
+    if (!apiConfig) {
+      setError('Please configure your OpenAI API key first');
+      onApiKeyRequest();
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const result = await generateWithOpenAI(prompt);
+      setDiagramResponse(result);
+      addToHistory(prompt, result);
+    } catch (err) {
+      console.error('Error generating diagram:', err);
+      setError('Failed to generate diagram. Please check your API key and try again.');
+      
+      // Show a demo diagram
+      const mockResponse: DiagramResponse = {
+        message: "Demo: Created a simple flowchart based on your description.",
+        mermaidCode: `graph TD
+    A[Start] --> B[Process Input]
+    B --> C{Valid Input?}
+    C -->|Yes| D[Generate Diagram]
+    C -->|No| E[Show Error]
+    D --> F[Display Result]
+    E --> B`,
+        diagramType: 'flowchart',
+        suggestions: ['Configure your OpenAI API key for full functionality', 'This is a demo diagram'],
+        complexity: 'simple',
+        exportHints: {
+          recommendedFormat: 'svg',
+          reason: 'SVG recommended for scalability and clarity'
+        }
+      };
+      setDiagramResponse(mockResponse);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const exportDiagram = async (format: 'png' | 'svg' | 'html' | 'mermaid') => {
+    if (!diagramResponse?.mermaidCode) return;
+
+    try {
+      if (format === 'mermaid') {
+        downloadFile('diagram.mmd', diagramResponse.mermaidCode, 'text/plain');
+        return;
+      }
+
+      const element = diagramRef.current?.querySelector('svg');
+      if (!element) throw new Error('No diagram to export');
+
+      switch (format) {
+        case 'svg':
+          const svgData = new XMLSerializer().serializeToString(element);
+          downloadFile(`diagram.svg`, svgData, 'image/svg+xml');
+          break;
+        case 'png':
+          const html2canvas = (await import('html2canvas')).default;
+          const canvas = await html2canvas(element as unknown as HTMLElement);
+          canvas.toBlob((blob) => {
+            if (blob) {
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = 'diagram.png';
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+            }
+          });
+          break;
+        case 'html':
+          const htmlContent = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+              <script>mermaid.initialize({ startOnLoad: true });</script>
+            </head>
+            <body>
+              <div class="mermaid">${diagramResponse.mermaidCode}</div>
+            </body>
+            </html>`;
+          downloadFile(`diagram.html`, htmlContent, 'text/html');
+          break;
+      }
+    } catch (err) {
+      console.error('Export failed:', err);
+      setError('Failed to export diagram');
+    }
+  };
+
+  const copyMermaidCode = () => {
+    if (!diagramResponse?.mermaidCode) return;
+    
+    navigator.clipboard.writeText(diagramResponse.mermaidCode).then(() => {
+      // Could add a toast notification here
+      console.log('Mermaid code copied to clipboard');
+    }).catch(err => {
+      console.error('Failed to copy:', err);
+      setError('Failed to copy to clipboard');
+    });
+  };
+
+  const downloadFile = (filename: string, content: string, mimeType: string) => {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="diagram-generator">
+      <div className="input-panel">
+        <h2>Describe Your Diagram</h2>
+        
+        {!apiConfig && (
+          <div className="api-key-prompt">
+            <p>Configure your OpenAI API key to start generating diagrams:</p>
+            <button 
+              onClick={() => onApiKeyRequest()} 
+              className="configure-api-button"
+            >
+              🔑 Configure OpenAI API
+            </button>
+          </div>
+        )}
+        
+        <textarea
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          placeholder="Describe the diagram you want to create (e.g., 'Create a flowchart showing user login process' or 'Show how our web app, database, and cache interact')"
+          rows={10}
+          className="prompt-input"
+        />
+        
+        <div className="action-buttons">
+          <button 
+            onClick={generateDiagram} 
+            disabled={loading || !prompt.trim() || !apiConfig}
+            className="generate-button"
+          >
+            {loading ? 'Generating...' : 'Generate Diagram'}
+          </button>
+          
+        </div>
+        
+        {diagramHistory.length > 0 && (
+          <div className="history-controls">
+            <div className="history-navigation">
+              <button 
+                onClick={goToPreviousDiagram}
+                disabled={currentHistoryIndex <= 0}
+                className="history-button"
+                title="Previous diagram"
+              >
+                ← Previous
+              </button>
+              
+              <span className="history-indicator">
+                {currentHistoryIndex + 1} of {diagramHistory.length}
+              </span>
+              
+              <button 
+                onClick={goToNextDiagram}
+                disabled={currentHistoryIndex >= diagramHistory.length - 1}
+                className="history-button"
+                title="Next diagram"
+              >
+                Next →
+              </button>
+              
+              <button 
+                onClick={clearHistory}
+                className="clear-history-button"
+                title="Clear diagram history"
+              >
+                🗑️ Clear
+              </button>
+            </div>
+          </div>
+        )}
+        
+        {apiConfig && (
+          <div className="api-status">
+            <span className="api-configured">✅ OpenAI API configured</span>
+          </div>
+        )}
+        
+        {error && (
+          <div className="error-message">
+            {error}
+            {!apiConfig && (
+              <button 
+                onClick={() => onApiKeyRequest()} 
+                className="configure-fallback-button"
+              >
+                Configure API Key
+              </button>
+            )}
+          </div>
+        )}
+        
+        {diagramResponse && (
+          <div className="response-info">
+            <p><strong>Message:</strong> {diagramResponse.message}</p>
+            {diagramResponse.suggestions.length > 0 && (
+              <div>
+                <strong>Suggestions:</strong>
+                <ul>
+                  {diagramResponse.suggestions.map((suggestion, index) => (
+                    <li key={index}>{suggestion}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {diagramResponse.exportHints && (
+              <div className="export-hints">
+                <strong>Export Recommendation:</strong> {diagramResponse.exportHints.recommendedFormat.toUpperCase()} - {diagramResponse.exportHints.reason}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      
+      <div className="diagram-panel">
+        <div className="diagram-header">
+          <h2>Diagram Preview</h2>
+          {diagramResponse && (
+            <div className="export-buttons">
+              <button 
+                onClick={() => exportDiagram('svg')} 
+                className="icon-button"
+                title="Export as SVG"
+              >
+                <FileText className="w-4 h-4" />
+              </button>
+              <button 
+                onClick={() => exportDiagram('png')} 
+                className="icon-button"
+                title="Export as PNG"
+              >
+                <Image className="w-4 h-4" />
+              </button>
+              <button 
+                onClick={() => exportDiagram('html')} 
+                className="icon-button"
+                title="Export as HTML"
+              >
+                <FileCode className="w-4 h-4" />
+              </button>
+              <button 
+                onClick={() => exportDiagram('mermaid')} 
+                className="icon-button"
+                title="Export Mermaid Code"
+              >
+                <Download className="w-4 h-4" />
+              </button>
+              <button 
+                onClick={copyMermaidCode} 
+                className="icon-button"
+                title="Copy Mermaid Code to Clipboard"
+              >
+                <Copy className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+        </div>
+        <div ref={diagramRef} className="diagram-container">
+          {!diagramResponse && (
+            <div className="placeholder">
+              <p>Your diagram will appear here</p>
+              <p>{apiConfig ? 'Enter a description and click "Generate Diagram"' : 'Configure your OpenAI API key to get started'}</p>
+            </div>
+          )}
+        </div>
+      </div>
+      
+    </div>
+  );
+};
+
+export default UnauthenticatedDiagramGenerator;
