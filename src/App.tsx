@@ -7,7 +7,6 @@ import UnauthenticatedDiagramGenerator from './components/UnauthenticatedDiagram
 import LoginButton from './components/LoginButton';
 import LogoutButton from './components/LogoutButton';
 import ApiKeyInput from './components/ApiKeyInput';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './components/ui/card';
 
 const msalInstance = new PublicClientApplication(msalConfig);
 
