@@ -2,8 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import mermaid from 'mermaid';
 import { useMsal } from '@azure/msal-react';
 import { apiRequest } from '../authConfig';
-import ApiKeyInput from './ApiKeyInput';
-import { Download, FileCode, Image, FileText, Copy } from 'lucide-react';
+import DiagramViewerSimple from './DiagramViewerSimple';
+import type { DiagramViewerHandle } from './DiagramViewerSimple';
+import ActionMenu from './ActionMenu';
+import { Download, FileCode, Image, FileText, Copy, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
 
 interface DiagramResponse {
   message: string;
@@ -28,8 +30,7 @@ const DiagramGenerator: React.FC = () => {
   const [diagramResponse, setDiagramResponse] = useState<DiagramResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showApiKeyInput, setShowApiKeyInput] = useState(false);
-  const [apiConfig, setApiConfig] = useState<{apiKey: string, apiUrl: string} | null>(
+  const [apiConfig] = useState<{apiKey: string, apiUrl: string} | null>(
     () => {
       const saved = localStorage.getItem('openai-api-config');
       return saved ? JSON.parse(saved) : null;
@@ -37,7 +38,8 @@ const DiagramGenerator: React.FC = () => {
   );
   const [diagramHistory, setDiagramHistory] = useState<DiagramHistoryItem[]>([]);
   const [currentHistoryIndex, setCurrentHistoryIndex] = useState(-1);
-  const diagramRef = useRef<HTMLDivElement>(null);
+  const diagramViewerRef = useRef<DiagramViewerHandle>(null);
+  const diagramRenderedRef = useRef<string | null>(null);
   const { instance, accounts } = useMsal();
 
   useEffect(() => {
@@ -49,30 +51,37 @@ const DiagramGenerator: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (diagramResponse?.mermaidCode && diagramRef.current) {
+    if (diagramResponse?.mermaidCode && diagramViewerRef.current) {
+      // Reset rendered ref when diagram response changes
+      if (diagramRenderedRef.current !== diagramResponse.mermaidCode) {
+        diagramRenderedRef.current = null;
+      }
       renderDiagram();
     }
   }, [diagramResponse]);
 
   const renderDiagram = async () => {
-    if (!diagramRef.current || !diagramResponse?.mermaidCode) return;
+    const diagramContainer = diagramViewerRef.current?.getDiagramContainer();
+    if (!diagramContainer || !diagramResponse?.mermaidCode) return;
+
+    // Check if we've already rendered this exact diagram
+    if (diagramRenderedRef.current === diagramResponse.mermaidCode) {
+      return;
+    }
 
     try {
-      const element = diagramRef.current;
+      const element = diagramContainer;
       element.innerHTML = `<div class="mermaid">${diagramResponse.mermaidCode}</div>`;
       await mermaid.run();
+      
+      // Mark this diagram as rendered
+      diagramRenderedRef.current = diagramResponse.mermaidCode;
     } catch (err) {
       console.error('Error rendering diagram:', err);
       setError('Failed to render diagram');
     }
   };
 
-  const handleApiKeySave = (apiKey: string, apiUrl: string) => {
-    const config = { apiKey, apiUrl };
-    setApiConfig(config);
-    localStorage.setItem('openai-api-config', JSON.stringify(config));
-    setShowApiKeyInput(false);
-  };
 
   const addToHistory = (prompt: string, response: DiagramResponse) => {
     const historyItem: DiagramHistoryItem = {
@@ -274,7 +283,8 @@ Create diagrams based on user descriptions. Use appropriate Mermaid syntax and s
         return;
       }
 
-      const element = diagramRef.current?.querySelector('svg');
+      const diagramContainer = diagramViewerRef.current?.getDiagramContainer();
+      const element = diagramContainer?.querySelector('svg');
       if (!element) throw new Error('No diagram to export');
 
       switch (format) {
@@ -363,51 +373,8 @@ Create diagrams based on user descriptions. Use appropriate Mermaid syntax and s
           >
             {loading ? 'Generating...' : 'Generate Diagram'}
           </button>
-          
-          <button 
-            onClick={() => setShowApiKeyInput(true)} 
-            className="fallback-button"
-            title="Configure OpenAI API as fallback"
-          >
-            {apiConfig ? '⚙️ Update API Key' : '🔑 Add API Key'}
-          </button>
         </div>
         
-        {diagramHistory.length > 0 && (
-          <div className="history-controls">
-            <div className="history-navigation">
-              <button 
-                onClick={goToPreviousDiagram}
-                disabled={currentHistoryIndex <= 0}
-                className="history-button"
-                title="Previous diagram"
-              >
-                ← Previous
-              </button>
-              
-              <span className="history-indicator">
-                {currentHistoryIndex + 1} of {diagramHistory.length}
-              </span>
-              
-              <button 
-                onClick={goToNextDiagram}
-                disabled={currentHistoryIndex >= diagramHistory.length - 1}
-                className="history-button"
-                title="Next diagram"
-              >
-                Next →
-              </button>
-              
-              <button 
-                onClick={clearHistory}
-                className="clear-history-button"
-                title="Clear diagram history"
-              >
-                🗑️ Clear
-              </button>
-            </div>
-          </div>
-        )}
         
         {apiConfig && (
           <div className="api-status">
@@ -419,12 +386,9 @@ Create diagrams based on user descriptions. Use appropriate Mermaid syntax and s
           <div className="error-message">
             {error}
             {!apiConfig && error.includes('unavailable') && (
-              <button 
-                onClick={() => setShowApiKeyInput(true)} 
-                className="configure-fallback-button"
-              >
-                Configure OpenAI Fallback
-              </button>
+              <div className="configure-fallback-hint">
+                Use the menu to configure OpenAI API as fallback
+              </div>
             )}
           </div>
         )}
@@ -451,65 +415,87 @@ Create diagrams based on user descriptions. Use appropriate Mermaid syntax and s
         )}
       </div>
       
-      <div className="diagram-panel">
+      <div className="diagram-panel relative">
         <div className="diagram-header">
           <h2>Diagram Preview</h2>
           {diagramResponse && (
-            <div className="export-buttons">
-              <button 
-                onClick={() => exportDiagram('svg')} 
-                className="icon-button"
-                title="Export as SVG"
-              >
-                <FileText className="w-4 h-4" />
-              </button>
-              <button 
-                onClick={() => exportDiagram('png')} 
-                className="icon-button"
-                title="Export as PNG"
-              >
-                <Image className="w-4 h-4" />
-              </button>
-              <button 
-                onClick={() => exportDiagram('html')} 
-                className="icon-button"
-                title="Export as HTML"
-              >
-                <FileCode className="w-4 h-4" />
-              </button>
-              <button 
-                onClick={() => exportDiagram('mermaid')} 
-                className="icon-button"
-                title="Export Mermaid Code"
-              >
-                <Download className="w-4 h-4" />
-              </button>
-              <button 
-                onClick={copyMermaidCode} 
-                className="icon-button"
-                title="Copy Mermaid Code to Clipboard"
-              >
-                <Copy className="w-4 h-4" />
-              </button>
-            </div>
+            <ActionMenu
+              groups={[
+                {
+                  title: 'Export',
+                  items: [
+                    {
+                      id: 'export-svg',
+                      label: 'Export as SVG',
+                      icon: <FileText className="w-4 h-4" />,
+                      action: () => exportDiagram('svg')
+                    },
+                    {
+                      id: 'export-png',
+                      label: 'Export as PNG',
+                      icon: <Image className="w-4 h-4" />,
+                      action: () => exportDiagram('png')
+                    },
+                    {
+                      id: 'export-html',
+                      label: 'Export as HTML',
+                      icon: <FileCode className="w-4 h-4" />,
+                      action: () => exportDiagram('html')
+                    },
+                    {
+                      id: 'export-mermaid',
+                      label: 'Export Mermaid Code',
+                      icon: <Download className="w-4 h-4" />,
+                      action: () => exportDiagram('mermaid')
+                    },
+                    {
+                      id: 'copy-code',
+                      label: 'Copy Mermaid Code',
+                      icon: <Copy className="w-4 h-4" />,
+                      action: copyMermaidCode
+                    }
+                  ]
+                },
+                {
+                  title: 'History',
+                  items: [
+                    {
+                      id: 'prev-diagram',
+                      label: `Previous (${currentHistoryIndex + 1}/${diagramHistory.length})`,
+                      icon: <ChevronLeft className="w-4 h-4" />,
+                      action: goToPreviousDiagram,
+                      disabled: currentHistoryIndex <= 0 || diagramHistory.length === 0
+                    },
+                    {
+                      id: 'next-diagram',
+                      label: 'Next',
+                      icon: <ChevronRight className="w-4 h-4" />,
+                      action: goToNextDiagram,
+                      disabled: currentHistoryIndex >= diagramHistory.length - 1 || diagramHistory.length === 0
+                    },
+                    {
+                      id: 'clear-history',
+                      label: 'Clear History',
+                      icon: <Trash2 className="w-4 h-4" />,
+                      action: clearHistory,
+                      disabled: diagramHistory.length === 0
+                    }
+                  ]
+                }
+              ]}
+            />
           )}
         </div>
-        <div ref={diagramRef} className="diagram-container">
-          {!diagramResponse && (
-            <div className="placeholder">
+        <DiagramViewerSimple ref={diagramViewerRef} className="h-full" />
+        {!diagramResponse && (
+          <div className="placeholder absolute inset-0 flex items-center justify-center">
+            <div className="text-center">
               <p>Your diagram will appear here</p>
               <p>Enter a description on the left and click "Generate Diagram" to begin</p>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
-      
-      {showApiKeyInput && (
-        <ApiKeyInput
-          onSave={handleApiKeySave}
-          onCancel={() => setShowApiKeyInput(false)}
-        />
-      )}
     </div>
   );
 };

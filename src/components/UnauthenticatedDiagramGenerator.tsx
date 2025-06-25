@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import mermaid from 'mermaid';
+import DiagramViewerSimple from './DiagramViewerSimple';
+import type { DiagramViewerHandle } from './DiagramViewerSimple';
 import { Download, FileCode, Image, FileText, Copy } from 'lucide-react';
 
 interface DiagramResponse {
@@ -32,7 +34,8 @@ const UnauthenticatedDiagramGenerator: React.FC<UnauthenticatedDiagramGeneratorP
   const [error, setError] = useState<string | null>(null);
   const [diagramHistory, setDiagramHistory] = useState<DiagramHistoryItem[]>([]);
   const [currentHistoryIndex, setCurrentHistoryIndex] = useState(-1);
-  const diagramRef = useRef<HTMLDivElement>(null);
+  const diagramViewerRef = useRef<DiagramViewerHandle>(null);
+  const diagramRenderedRef = useRef<string | null>(null);
 
   useEffect(() => {
     mermaid.initialize({
@@ -43,18 +46,31 @@ const UnauthenticatedDiagramGenerator: React.FC<UnauthenticatedDiagramGeneratorP
   }, []);
 
   useEffect(() => {
-    if (diagramResponse?.mermaidCode && diagramRef.current) {
+    if (diagramResponse?.mermaidCode && diagramViewerRef.current) {
+      // Reset rendered ref when diagram response changes
+      if (diagramRenderedRef.current !== diagramResponse.mermaidCode) {
+        diagramRenderedRef.current = null;
+      }
       renderDiagram();
     }
   }, [diagramResponse]);
 
   const renderDiagram = async () => {
-    if (!diagramRef.current || !diagramResponse?.mermaidCode) return;
+    const diagramContainer = diagramViewerRef.current?.getDiagramContainer();
+    if (!diagramContainer || !diagramResponse?.mermaidCode) return;
+
+    // Check if we've already rendered this exact diagram
+    if (diagramRenderedRef.current === diagramResponse.mermaidCode) {
+      return;
+    }
 
     try {
-      const element = diagramRef.current;
+      const element = diagramContainer;
       element.innerHTML = `<div class="mermaid">${diagramResponse.mermaidCode}</div>`;
       await mermaid.run();
+      
+      // Mark this diagram as rendered
+      diagramRenderedRef.current = diagramResponse.mermaidCode;
     } catch (err) {
       console.error('Error rendering diagram:', err);
       setError('Failed to render diagram');
@@ -358,7 +374,8 @@ Create diagrams based on user descriptions. Use appropriate Mermaid syntax and s
         return;
       }
 
-      const element = diagramRef.current?.querySelector('svg');
+      const diagramContainer = diagramViewerRef.current?.getDiagramContainer();
+      const element = diagramContainer?.querySelector('svg');
       if (!element) throw new Error('No diagram to export');
 
       switch (format) {
@@ -541,7 +558,7 @@ Create diagrams based on user descriptions. Use appropriate Mermaid syntax and s
         )}
       </div>
       
-      <div className="diagram-panel">
+      <div className="diagram-panel relative">
         <div className="diagram-header">
           <h2>Diagram Preview</h2>
           {diagramResponse && (
@@ -584,14 +601,15 @@ Create diagrams based on user descriptions. Use appropriate Mermaid syntax and s
             </div>
           )}
         </div>
-        <div ref={diagramRef} className="diagram-container">
-          {!diagramResponse && (
-            <div className="placeholder">
+        <DiagramViewerSimple ref={diagramViewerRef} className="h-full" />
+        {!diagramResponse && (
+          <div className="placeholder absolute inset-0 flex items-center justify-center">
+            <div className="text-center">
               <p>Your diagram will appear here</p>
               <p>{apiConfig ? 'Enter a description and click "Generate Diagram"' : 'Configure your OpenAI API key to get started'}</p>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
       
     </div>

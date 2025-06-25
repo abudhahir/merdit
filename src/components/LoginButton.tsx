@@ -13,7 +13,7 @@ const LoginButton: React.FC = () => {
   };
 
   return (
-    <Button onClick={handleLogin} variant="default" size="default">
+    <Button onClick={handleLogin} variant="secondary" size="default" className="bg-background text-foreground hover:bg-background/80">
       Sign in with Microsoft
     </Button>
   );

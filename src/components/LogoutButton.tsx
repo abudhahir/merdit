@@ -12,7 +12,7 @@ const LogoutButton: React.FC = () => {
   };
 
   return (
-    <Button onClick={handleLogout} variant="outline" size="default">
+    <Button onClick={handleLogout} variant="ghost" size="default" className="text-background hover:bg-background/10">
       Sign out
     </Button>
   );

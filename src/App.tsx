@@ -4,9 +4,8 @@ import { PublicClientApplication } from '@azure/msal-browser';
 import { msalConfig } from './authConfig';
 import DiagramGenerator from './components/DiagramGenerator';
 import UnauthenticatedDiagramGenerator from './components/UnauthenticatedDiagramGenerator';
-import LoginButton from './components/LoginButton';
-import LogoutButton from './components/LogoutButton';
 import ApiKeyInput from './components/ApiKeyInput';
+import HeaderMenu from './components/HeaderMenu';
 
 const msalInstance = new PublicClientApplication(msalConfig);
 
@@ -29,30 +28,19 @@ function App() {
   return (
     <MsalProvider instance={msalInstance}>
       <div className="min-h-screen bg-background">
-        <header className="border-b bg-card">
-          <div className="container mx-auto flex h-16 items-center justify-between px-4">
-            <h1 className="text-2xl font-bold text-foreground">Mermaid Diagram Generator</h1>
-            <div className="flex items-center gap-4">
-              <AuthenticatedTemplate>
-                <LogoutButton />
-              </AuthenticatedTemplate>
-              <UnauthenticatedTemplate>
-                {apiConfig && (
-                  <button 
-                    onClick={() => setShowApiKeyInput(true)} 
-                    className="px-4 py-2 text-sm bg-gray-600 text-white rounded-md hover:bg-gray-700"
-                    title="Update OpenAI API configuration"
-                  >
-                    ⚙️ Update API Key
-                  </button>
-                )}
-                <LoginButton />
-              </UnauthenticatedTemplate>
+        <header className="fixed top-4 left-1/2 transform -translate-x-1/2 z-40 w-[calc(100%-2rem)]">
+          <div className="bg-foreground/90 backdrop-blur-md border border-background/20 rounded-2xl shadow-lg px-6 py-3">
+            <div className="flex items-center justify-between">
+              <h1 className="text-xl font-bold text-background">Mermaid Diagram Generator</h1>
+              <HeaderMenu 
+                apiConfig={apiConfig}
+                onApiKeyClick={() => setShowApiKeyInput(true)}
+              />
             </div>
           </div>
         </header>
 
-        <main className="container mx-auto py-8 px-4 flex-1">
+        <main className="container mx-auto py-8 px-4 flex-1 pt-24">
           <AuthenticatedTemplate>
             <div className="h-full">
               <DiagramGenerator />
