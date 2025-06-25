@@ -125,7 +125,7 @@ If Azure OpenAI Service is unavailable, you can configure your own OpenAI API ke
 
 The app will automatically try the fallback when Azure OpenAI is unavailable. Your API key is stored securely in your browser's local storage.
 
-**CORS Setup:** Due to browser security restrictions, you may need to set up a proxy to use OpenAI API. See [OPENAI_SETUP.md](./OPENAI_SETUP.md) for detailed instructions. The app provides multiple setup options including a local proxy server.
+**CORS Setup:** Due to browser security restrictions, you may need to set up a proxy to use OpenAI API. See [OPENAI_SETUP.md](./docs/OPENAI_SETUP.md) for detailed instructions. The app provides multiple setup options including a local proxy server.
 
 ### Diagram History
 
@@ -198,6 +198,13 @@ src/
 ## License
 
 This project is licensed under the MIT License.
+
+## Documentation
+
+- [CLAUDE.md](./docs/CLAUDE.md) - Development guidelines and project-specific instructions
+- [QUICK_START.md](./docs/QUICK_START.md) - Quick start guide for getting up and running
+- [PROJECT_SUMMARY.md](./docs/PROJECT_SUMMARY.md) - Detailed project summary and architecture
+- [OPENAI_SETUP.md](./docs/OPENAI_SETUP.md) - OpenAI API setup and CORS configuration
 
 ## Support
 

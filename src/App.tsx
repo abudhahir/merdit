@@ -6,6 +6,7 @@ import DiagramGenerator from './components/DiagramGenerator';
 import UnauthenticatedDiagramGenerator from './components/UnauthenticatedDiagramGenerator';
 import ApiKeyInput from './components/ApiKeyInput';
 import HeaderMenu from './components/HeaderMenu';
+import AccessModeAlert from './components/AccessModeAlert';
 
 const msalInstance = new PublicClientApplication(msalConfig);
 
@@ -17,17 +18,33 @@ function App() {
       return saved ? JSON.parse(saved) : null;
     }
   );
+  const [authMode, setAuthMode] = useState<'entra' | 'openai'>(() => {
+    // Default to 'entra' if no API key is configured
+    const saved = localStorage.getItem('openai-api-config');
+    return saved ? 'openai' : 'entra';
+  });
 
   const handleApiKeySave = (apiKey: string, apiUrl: string) => {
     const config = { apiKey, apiUrl };
     setApiConfig(config);
     localStorage.setItem('openai-api-config', JSON.stringify(config));
+    setAuthMode('openai');
     setShowApiKeyInput(false);
   };
 
   return (
     <MsalProvider instance={msalInstance}>
       <div className="min-h-screen bg-background">
+        <AccessModeAlert 
+          authMode={authMode} 
+          apiKey={apiConfig?.apiKey || ''} 
+          onSignInClick={() => {
+            msalInstance.loginPopup({ scopes: ['https://graph.microsoft.com/User.Read'] }).catch((e) => {
+              console.error(e);
+            });
+          }}
+          onApiKeyClick={() => setShowApiKeyInput(true)}
+        />
         <header className="fixed top-4 left-1/2 transform -translate-x-1/2 z-40 w-[calc(100%-2rem)]">
           <div className="bg-foreground/90 backdrop-blur-md border border-background/20 rounded-2xl shadow-lg px-6 py-3">
             <div className="flex items-center justify-between">

@@ -1,16 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { 
-  MoreVertical, 
-  Download, 
-  FileCode, 
-  Image, 
-  FileText, 
-  Copy, 
-  History,
-  ChevronLeft,
-  ChevronRight,
-  Trash2,
-  Key,
   Menu
 } from 'lucide-react';
 
